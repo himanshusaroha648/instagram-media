@@ -1,0 +1,16 @@
+{
+    "account": "",
+    "data": {
+        "pk_id": "",
+        "IG-Set-Authorization": "Bearer IGT:2:eyJkc1.........",
+        "uuid": "",
+        "device_id": "",
+        "proxy": "no_proxy"
+    },
+    "num_replies": 5,
+    "messages": [
+        "Message 1",
+        "Message 2",
+        "Message 3"
+    ]
+}
