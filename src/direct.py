@@ -5,6 +5,7 @@ import time
 import random
 import datetime
 import os
+import glob
 
 class InstagramDirect:
     def __init__(self, account_data):
@@ -130,17 +131,15 @@ class InstagramDirect:
                     print(f"{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}: Uploading video {i}/{len(video_paths)}: {os.path.basename(video_path)}")
                     upload_result = self.upload_video(video_path)
                     upload_data.append(upload_result)
-                    print(f"{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}: Upload result: {upload_result}")
-                    if i < len(video_paths):  # Don't wait after the last video
-                        wait_time = random.randint(2, 5)
-                        print(f"{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}: Waiting {wait_time}s before next upload...")
-                        time.sleep(wait_time)
+                    # concise progress update
+                    print(f"{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}:   progress uploaded {i}/{len(video_paths)}")
+                    if i < len(video_paths):
+                        time.sleep(random.randint(2, 5))
                 except Exception as e:
                     print(f"{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}: ❌ Exception in upload loop: {str(e)}")
                     raise
             
             # Extract media IDs from upload results
-            print(f"{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}: DEBUG: upload_data = {upload_data}")
             media_ids = []
             upload_ids = []
             for item in upload_data:
@@ -148,9 +147,6 @@ class InstagramDirect:
                     media_ids.append(item["media_id"])
                 if item and "upload_id" in item and item["upload_id"]:
                     upload_ids.append(item["upload_id"])
-            
-            print(f"{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}: DEBUG: media_ids = {media_ids}")
-            print(f"{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}: DEBUG: upload_ids = {upload_ids}")
             
             # Try using media_ids first, fallback to upload_ids if needed
             if media_ids:
@@ -231,8 +227,6 @@ class InstagramDirect:
             
             # Send video message using the correct media_attachment_list endpoint
             print(f"{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}: Sending video message to thread {thread_id}...")
-            print(f"{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}: Client context: {client_context}")
-            print(f"{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}: Attachment FBIDs: {json.dumps(attachment_data)}")
             proxies = {"http": self.proxy, "https": self.proxy} if self.proxy != "no_proxy" else None
             response = requests.post(
                 'https://i.instagram.com/api/v1/direct_v2/threads/broadcast/media_attachment_list/', 
@@ -246,7 +240,6 @@ class InstagramDirect:
                 print(f"{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}: ❌ Video message send FAILED: {response.text}")
                 raise Exception(f'Failed to send video message: {response.text}')
             
-            print(f"{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}: ✅ Video message sent successfully to thread {thread_id}")
             return True
             
         except Exception as e:
@@ -295,8 +288,9 @@ class InstagramDirect:
         
         # Send video to the found thread
         try:
+            print(f"{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}: Sending video Instagram [{username}]")
             self.send_video_message(target_thread_id, video_paths)
-            print(f"{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}: ✅ Video sent successfully to @{username}")
+            print(f"{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}: ✅ Video sent successfully")
             return True
         except Exception as e:
             print(f"{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}: ❌ Failed to send video to @{username}: {e}")
@@ -370,14 +364,7 @@ class InstagramDirect:
         
         # Upload video
         proxies = {"http": self.proxy, "https": self.proxy} if self.proxy != "no_proxy" else None
-        print(f"{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}: Uploading video {os.path.basename(file_path)}...")
-        print(f"{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}: Upload URL: {upload_url}")
-        print(f"{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}: File size: {file_size} bytes")
-        
         response = requests.post(upload_url, headers=upload_headers, data=video_data, proxies=proxies)
-        
-        print(f"{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}: Upload response status: {response.status_code}")
-        print(f"{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}: Upload response: {response.text[:200]}...")
         
         if response.status_code != 200:
             print(f"{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}: ❌ Video upload FAILED: {response.text}")
@@ -388,14 +375,10 @@ class InstagramDirect:
             response_data = response.json()
             media_id = response_data.get('media_id')
             if media_id:
-                print(f"{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}: ✅ Video uploaded successfully! Media ID: {media_id}")
-                # Return both upload_id and media_id for debugging
                 return {"upload_id": upload_id, "media_id": str(media_id)}
             else:
-                print(f"{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}: ✅ Video uploaded successfully! Upload ID: {upload_id}")
                 return {"upload_id": upload_id, "media_id": None}
         except:
-            print(f"{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}: ✅ Video uploaded successfully! Upload ID: {upload_id}")
             return {"upload_id": upload_id, "media_id": None}
 
     def send_video_with_upload_ids(self, thread_id, upload_ids):
@@ -547,4 +530,94 @@ class InstagramDirect:
             return True
         except Exception as e:
             print(f"{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}: ❌ Failed to send video to @{username}: {e}")
+            return False
+
+    def send_videos_in_batches(self, thread_id, video_paths, batch_size=10):
+        """Send videos to a thread in batches of up to 10. Delete each file after successful send.
+        Returns total number of videos sent. If media is blocked (invitation not accepted), sends a fallback text and stops.
+        """
+        if isinstance(video_paths, str):
+            video_paths = [video_paths]
+        vids = [p for p in video_paths if os.path.exists(p)]
+        if not vids:
+            return 0
+        total_sent = 0
+        for i in range(0, len(vids), max(1, int(batch_size))):
+            batch = vids[i:i+batch_size]
+            try:
+                self.send_video_message(thread_id, batch)
+                total_sent += len(batch)
+                # delete after successful send to prevent duplicates
+                for p in batch:
+                    try:
+                        os.remove(p)
+                    except Exception:
+                        pass
+            except Exception as e:
+                msg = str(e)
+                # Media blocked until invitation accepted
+                if '1545121' in msg or "can't be delivered" in msg or 'status_code":"403' in msg:
+                    fallback_text = "Hi! Please accept the chat request so I can send videos."
+                    try:
+                        self.send_message(thread_id, fallback_text)
+                    except Exception:
+                        pass
+                    break
+                else:
+                    raise
+        return total_sent
+    
+    def get_split_videos(self, count=None):
+        """
+        Get random video files from the split directory
+        Args:
+            count: Number of videos to return (None for all)
+        Returns:
+            List of video file paths from split directory
+        """
+        # Get the split directory path
+        split_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'split')
+        
+        # Find all mp4 files in split directory
+        video_patterns = [
+            os.path.join(split_dir, '*.mp4'),
+            os.path.join(split_dir, '*.MP4'),
+            os.path.join(split_dir, '*.avi'),
+            os.path.join(split_dir, '*.mov')
+        ]
+        
+        all_videos = []
+        for pattern in video_patterns:
+            all_videos.extend(glob.glob(pattern))
+        
+        if not all_videos:
+            print(f"{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}: No videos found in split directory: {split_dir}")
+            return []
+        
+        # Shuffle videos for random selection
+        random.shuffle(all_videos)
+        
+        # Return requested count or all videos
+        if count is None:
+            selected_videos = all_videos
+        else:
+            selected_videos = all_videos[:count]
+        
+        print(f"{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}: Found {len(all_videos)} videos in split directory, selected {len(selected_videos)}")
+        return selected_videos
+    
+    def send_random_split_videos(self, thread_id, video_count=2):
+        """
+        Send random videos from split directory to a thread
+        Args:
+            thread_id: Instagram thread ID
+            video_count: Number of videos to send (default: 2)
+        """
+        videos = self.get_split_videos(video_count)
+        if videos:
+            print(f"{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}: Sending {len(videos)} random videos from split directory...")
+            self.send_video_message(thread_id, videos)
+            return True
+        else:
+            print(f"{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}: No videos available in split directory")
             return False
