@@ -1,2 +1,5 @@
 requests
-pycryptodome
+beautifulsoup4
+m3u8
+tqdm
+flask

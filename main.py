@@ -5,6 +5,8 @@ import json
 import random
 import time
 import datetime
+import subprocess
+
 
 def ensure_dir(directory):
     if not os.path.exists(directory):
@@ -17,244 +19,166 @@ ensure_dir('locks')
 console_width = os.get_terminal_size().columns
 print('-' * console_width)
 
-def choose_account():
-    config_files = [f for f in os.listdir('accounts') if f.endswith('.json')]
 
-    if not config_files:
-        print("There's no config file in 'accounts'.")
-        return None
+def choose_account_configs():
+        """Load all account configs in accounts/ as a list of dicts."""
+        configs = []
+        for file in os.listdir('accounts'):
+                if file.endswith('.json'):
+                        with open(os.path.join('accounts', file), 'r', encoding='utf-8') as f:
+                                configs.append(json.load(f))
+        return configs
 
-    for i, file in enumerate(config_files):
-        print(f'{i + 1}. {file}')
 
-    console_width = os.get_terminal_size().columns
-    print('-' * console_width)
+def read_thread_ids(path='thread.txt'):
+        """Read thread IDs (one per line). Returns a list of strings."""
+        if not os.path.exists(path):
+                return []
+        with open(path, 'r', encoding='utf-8') as f:
+                return [line.strip() for line in f if line.strip()]
 
-    file_num = int(input("Select account: ")) - 1
-    config_file = config_files[file_num]
-    account_name, _ = os.path.splitext(config_file)
 
-    print(f"Selected account: {account_name}")
-
-    with open(f'accounts/{config_file}', 'r', encoding='utf-8') as f:
-        config = json.load(f)
-    return config
-
-def choose_message_type():
-    """Choose between text messages or video messages"""
-    console_width = os.get_terminal_size().columns
-    print('-' * console_width)
-    print("Choose message type:")
-    print("1. Text messages")
-    print("2. Video messages")
-    print("3. Both (random selection)")
-    print("4. Send video to specific user")
-    print('-' * console_width)
-    
-    while True:
-        choice = input("Select message type (1/2/3/4): ").strip()
-        if choice in ['1', '2', '3', '4']:
-            return int(choice)
-        else:
-            print("Please enter 1, 2, 3, or 4.")
-
-def get_video_paths():
-    """Get video file paths from user"""
-    video_paths = []
-    print("\nEnter video file paths (one per line, press Enter twice when done):")
-    
-    while True:
-        path = input("Video path: ").strip()
-        if not path:
-            break
-        if os.path.exists(path):
-            video_paths.append(path)
-            print(f"✅ Added: {os.path.basename(path)}")
-        else:
-            print(f"❌ File not found: {path}")
-    
-    if not video_paths:
-        print("No valid video paths provided.")
-        return None
-    
-    # Show video count and selection options
-    print(f"\n📹 Total videos added: {len(video_paths)}")
-    print("How many videos to send per message?")
-    print("1. Send 1 video per message")
-    print("2. Send 2 videos per message") 
-    print("3. Send random (1-2 videos)")
-    
-    while True:
-        choice = input("Select option (1/2/3): ").strip()
-        if choice in ['1', '2', '3']:
-            video_count = int(choice)
-            break
-        else:
-            print("Please enter 1, 2, or 3.")
-    
-    return video_paths, video_count
-
-def has_responded(account_name, user_id):
-    file_name = f'responded_users/{account_name}.json'
-    if not os.path.exists(file_name):
-        return False
-    with open(file_name, 'r', encoding='utf-8') as f:
-        responded_users = json.load(f)
-    return str(user_id) in responded_users
-
-def mark_as_responded(account_name, user_id, username):
-    file_name = f'responded_users/{account_name}.json'
-    responded_users = {}
-    if os.path.exists(file_name):
-        with open(file_name, 'r', encoding='utf-8') as f:
-            responded_users = json.load(f)
-    responded_users[str(user_id)] = username
-    with open(file_name, 'w', encoding='utf-8') as f:
-        json.dump(responded_users, f)
-
-config = choose_account()
-
-if config is None:
-    print("Can't load config.")
-else:
-    # Choose message type
-    message_type = choose_message_type()
-    
-    # Get video paths if needed
-    video_paths = None
-    video_count = 1
-    target_username = None
-    
-    if message_type in [2, 3, 4]:  # Video messages, both, or specific user
-        result = get_video_paths()
-        if result is None and message_type in [2, 4]:
-            print("No video paths provided. Exiting.")
-            sys.exit()
-        elif result is not None:
-            video_paths, video_count = result
-    
-    # Get target username for specific user option
-    if message_type == 4:
-        target_username = input("Enter username to send video to (without @): ").strip()
-        if not target_username:
-            print("No username provided. Exiting.")
-            sys.exit()
-
-    while True:
-        continue_choice = input("Do you want to continue? (yes/no): ").lower()
-        if continue_choice in ["yes", "no"]:
-            break
-        else:
-            print("Please enter 'yes' or 'no'.")
-
-    if continue_choice == "no":
-        print("Exiting.")
-        sys.exit()
-
-    lock_file = os.path.join('locks', f"{config['account']}.lock")
-
-    if os.path.exists(lock_file):
-        print(f"Account {config['account']} lock file found. Removing old lock file...")
-        try:
-            os.remove(lock_file)
-            print(f"✅ Old lock file removed successfully.")
-        except Exception as e:
-            print(f"❌ Failed to remove lock file: {e}")
-            print("Please manually delete the lock file and try again.")
-            sys.exit()
-    
-    # Create new lock file
-    open(lock_file, 'a').close()
-    print(f"✅ Lock file created for account {config['account']}")
-
-    session = InstagramDirect(config)
-    session.test_proxy()
-
-    # Handle specific user sending
-    if message_type == 4:
-        print(f"{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}: Sending video to @{target_username}...")
-        try:
-            success = session.send_video_to_user(target_username, video_paths)
-            if success:
-                print(f"{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}: ✅ Video sent successfully to @{target_username}")
-            else:
-                print(f"{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}: ❌ Failed to send video to @{target_username}")
-        except Exception as e:
-            print(f"{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}: ❌ Error sending video to @{target_username}: {e}")
+def list_split_videos(folder='split'):
+        """Return list of absolute paths to videos in split/ sorted by name."""
+        # Get the correct path relative to the script location
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        split_path = os.path.join(script_dir, folder)
         
-        # Remove lock file and exit
+        if not os.path.isdir(split_path):
+                return []
+        paths = []
+        for name in sorted(os.listdir(split_path)):
+                p = os.path.join(split_path, name)
+                if os.path.isfile(p) and name.lower().endswith(('.mp4', '.mov', '.mkv', '.webm')):
+                        paths.append(p)
+        return paths
+
+
+def within_working_hours():
+        """Return True only between 08:00 and 22:00 local time."""
+        now = datetime.datetime.now().time()
+        start = datetime.time(8, 0, 0)
+        end = datetime.time(22, 0, 0)
+        return start <= now <= end
+
+
+def run_thread_mode_for_account(config):
+        """Send videos from split/ to all thread IDs in batches of 10, deleting files after send."""
+        account_name = config['account']
+        lock_file = os.path.join('locks', f"{account_name}.lock")
         if os.path.exists(lock_file):
-            os.remove(lock_file)
-        sys.exit()
+                try:
+                        os.remove(lock_file)
+                except Exception:
+                        pass
+        open(lock_file, 'a').close()
 
-    message_counter = 0
-    while message_counter < config['num_replies']:
-        user_ids = session.get_direct_threads()
-        all_responded = all(has_responded(config['account'], user_id) for _, user_id, _ in user_ids)
-        if all_responded:
-            print(f"{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}: All users from direct threads have been responded to. Checking spam inbox...")
-            user_ids = session.get_direct_threads_spam()  # Check spam inbox if all users from get_direct_threads have been responded to
-        if not user_ids:
-            wait_time = random.randint(120, 300) # Adjust the wait time as needed
-            print(f"{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}: No new threads in inbox or spam inbox. Waiting for {wait_time} seconds before checking for new threads...")
-            time.sleep(wait_time)
-        for thread_id, user_id, username in user_ids:
-            if message_counter >= config['num_replies']:
-                print(f"{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}: Reached reply limit ({config['num_replies']}). Stopping message sending.")
-                break
-            if has_responded(config['account'], user_id):
-                print(f"{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}: Already responded to user {username} ; Skipping.")
-                time.sleep(random.randint(120, 300)) # Adjust the wait time as needed
-                continue
-            
-            # Determine what type of message to send
-            if message_type == 1:  # Text only
-                message = random.choice(config['messages'])
-                session.send_message(thread_id, message)
-                print(f"{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}: [{message_counter+1}/{config['num_replies']}] Sent text message to user {username}: '{message}'")
+        session = InstagramDirect(config)
+        try:
+                session.test_proxy()
+        except Exception:
+                pass
+
+        thread_ids = read_thread_ids('thread.txt')
+        if not thread_ids:
+                print('No thread IDs found in thread.txt')
+                return
+
+        videos = list_split_videos('split')
+        if not videos:
+                print('No videos found in split/')
+                return
+
+        # Shuffle videos so batches differ between accounts
+        random.shuffle(videos)
+
+        for thread_id in thread_ids:
+                print(f"{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}: Sending videos to thread {thread_id}...")
+                total = session.send_videos_in_batches(thread_id, videos, batch_size=10)
+                print(f"{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}: ✅ Sent {total} videos to thread {thread_id}")
+                # refresh remaining videos list after deletions
+                videos = list_split_videos('split')
+                if not videos:
+                        break
+        # Cleanup lock
+        if os.path.exists(lock_file):
+                os.remove(lock_file)
+
+
+def run_continuous_workflow():
+        """Run pipeline every 5 minutes during 8:00-22:00, sleep 22:00-8:00, rotate accounts every 90 minutes."""
+        configs = choose_account_configs()
+        if not configs:
+                print("There's no config file in 'accounts'.")
+                return
+        
+        account_idx = 0
+        last_pipeline_run = 0
+        last_account_switch = 0
+        
+        while True:
+                now = datetime.datetime.now()
+                current_time = now.time()
                 
-            elif message_type == 2:  # Video only
-                if video_paths:
-                    # Select videos based on user choice
-                    if video_count == 1:
-                        selected_videos = [random.choice(video_paths)]
-                    elif video_count == 2:
-                        selected_videos = random.sample(video_paths, min(len(video_paths), 2))
-                    else:  # random
-                        selected_videos = random.sample(video_paths, min(len(video_paths), random.randint(1, 2)))
-                    
-                    try:
-                        session.send_video_message(thread_id, selected_videos)
-                        print(f"{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}: [{message_counter+1}/{config['num_replies']}] ✅ Successfully sent video message to user {username}: {[os.path.basename(v) for v in selected_videos]}")
-                    except Exception as e:
-                        print(f"{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}: [{message_counter+1}/{config['num_replies']}] ❌ Failed to send video to user {username}: {e}")
+                # Check if we're in working hours (8:00-22:00)
+                if not within_working_hours():
+                        # Sleep until 08:00 next day
+                        next_start = now.replace(hour=8, minute=0, second=0, microsecond=0)
+                        if next_start <= now:
+                                next_start += datetime.timedelta(days=1)
+                        sleep_seconds = int((next_start - now).total_seconds())
+                        print(f"{now.strftime('%Y-%m-%d %H:%M:%S')}: Outside working hours (22:00-08:00). Sleeping {sleep_seconds} seconds until 08:00...")
+                        time.sleep(sleep_seconds)
                         continue
-                
-            elif message_type == 3:  # Both (random selection)
-                if random.choice([True, False]):  # Random choice between text and video
-                    message = random.choice(config['messages'])
-                    session.send_message(thread_id, message)
-                    print(f"{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}: [{message_counter+1}/{config['num_replies']}] ✅ Sent text message to user {username}: '{message}'")
-                else:
-                    if video_paths:
-                        selected_videos = random.sample(video_paths, min(len(video_paths), random.randint(1, 2)))
-                        try:
-                            session.send_video_message(thread_id, selected_videos)
-                            print(f"{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}: [{message_counter+1}/{config['num_replies']}] ✅ Successfully sent video message to user {username}: {[os.path.basename(v) for v in selected_videos]}")
-                        except Exception as e:
-                            print(f"{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}: [{message_counter+1}/{config['num_replies']}] ❌ Failed to send video to user {username}: {e}")
-                            continue
-                    else:
-                        message = random.choice(config['messages'])
-                        session.send_message(thread_id, message)
-                        print(f"{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}: [{message_counter+1}/{config['num_replies']}] ✅ Sent text message to user {username}: '{message}'")
             
-            mark_as_responded(config['account'], user_id, username)
-            wait_time = random.randint(600, 900) # Adjust the wait time as needed
-            print(f"{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}: Waiting {wait_time} seconds before sending message to next user.")
-            message_counter += 1
-            time.sleep(wait_time)
+                # Run pipeline every 5 minutes
+                if now.timestamp() - last_pipeline_run >= 300:  # 5 minutes = 300 seconds
+                        print(f"{now.strftime('%Y-%m-%d %H:%M:%S')}: Running pipeline (linkfetch -> download -> split)...")
+                        run_pipeline_once()
+                        last_pipeline_run = now.timestamp()
+                
+                # Switch account every 90 minutes
+                if now.timestamp() - last_account_switch >= 5400:  # 90 minutes = 5400 seconds
+                        account_idx = (account_idx + 1) % len(configs)
+                        last_account_switch = now.timestamp()
+                        print(f"{now.strftime('%Y-%m-%d %H:%M:%S')}: Switched to account: {configs[account_idx]['account']}")
+                
+                # Send videos with current account
+                config = configs[account_idx]
+                print(f"{now.strftime('%Y-%m-%d %H:%M:%S')}: Using account: {config['account']}")
+                run_thread_mode_for_account(config)
+                
+                # Wait 1 minute before next cycle
+                print(f"{now.strftime('%Y-%m-%d %H:%M:%S')}: Waiting 1 minute before next cycle...")
+                time.sleep(60)
 
 
-    if os.path.exists(lock_file):
-        os.remove(lock_file)
+def run_pipeline_once():
+        """Run: linkfetch -> download -> split, then return to let DM sending begin."""
+        proj_root = os.path.dirname(os.path.abspath(__file__))
+        python = sys.executable
+        # Build absolute script paths relative to project root
+        linkfetch = os.path.join(proj_root, 'src', 'linkfetch.py')
+        downloader = os.path.join(proj_root, 'xhamster', 'download.py')
+        splitter = os.path.join(proj_root, 'src', 'split.py')
+        # Execute sequentially, non-interactive
+        print('Running linkfetch...')
+        try:
+                subprocess.run([python, linkfetch], check=False)
+        except Exception as e:
+                print('linkfetch failed:', e)
+        print('Running downloader...')
+        try:
+                subprocess.run([python, downloader], check=False)
+        except Exception as e:
+                print('downloader failed:', e)
+        print('Running splitter...')
+        try:
+                subprocess.run([python, splitter], check=False)
+        except Exception as e:
+                print('splitter failed:', e)
+
+
+if __name__ == '__main__':
+        # Run continuous workflow: pipeline every 5 minutes, account rotation every 90 minutes
+        run_continuous_workflow()
